@@ -1,30 +1,36 @@
-use crate::udp::UDPWrapper;
-use openssl::ssl::{SslConnector, SslMethod};
-use std::io::{Read, Write};
-use std::net::UdpSocket;
-
-const KEY: &'static str = "1234";
-const ID: &'static str = "CoaP";
-
-mod udp;
+extern crate coap;
+use coap::dtls_client::DTLSCoAPClient;
+use coap::message::header::RequestType as Method;
+use coap::message::packet::Packet;
+use coap::message::IsMessage;
+use coap::CoAPRequest;
+use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 
 fn main() {
-  let mut builder = SslConnector::builder(SslMethod::dtls()).unwrap();
+  let peer = "coaps://192.168.1.11:5684/15011/9063";
 
-  builder.set_psk_client_callback(move |_ssl, _hint, mut identity_buffer, mut psk_buffer| {
-    identity_buffer.write_all(ID.as_bytes()).unwrap();
-    psk_buffer.write_all(KEY.as_bytes()).unwrap();
+  let (domain, port, path) = DTLSCoAPClient::parse_coap_url(peer).unwrap();
 
-    Ok(KEY.len())
-  });
+  println!("{}, {}, {}", domain, port, path);
 
-  let connector = builder.build();
-  let socket = UdpSocket::bind("127.0.0.1:34254").unwrap();
-  let wrapper = UDPWrapper::new(socket);
+  let payload = r#"{"9090":"asdasd"}"#;
 
-  if let Err(e) = connector.connect("127.0.0.1:5684", wrapper) {
-    println!("{:}", e);
-  }
-  // let stream = TcpStream::connect("google.com:443").unwrap();
-  // let mut stream = connector.connect("google.com", stream).unwrap();
+  let mut request = CoAPRequest::new();
+
+  request.set_method(Method::Post);
+  request.set_path(path.as_str());
+  request.set_payload(Vec::from(payload.as_bytes()));
+
+  let mut client = DTLSCoAPClient::new(("192.168.1.11", port)).unwrap();
+  client.send(&request).unwrap();
+
+  match client.receive() {
+    Ok(receive_packet) => {
+      println!(
+        "Server reply: {}",
+        String::from_utf8(receive_packet.message.payload).unwrap()
+      );
+    }
+    _ => (),
+  };
 }
